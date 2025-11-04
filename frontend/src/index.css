@@ -1,0 +1,33 @@
+/* Reset global essencial */
+*,
+*::before,
+*::after { box-sizing: border-box; }
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+/* Remove limites do template do Vite */
+#root {
+  max-width: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* Evita rolagem horizontal inesperada */
+html, body { overflow-x: hidden; }
+
+/* ===== Fundo padrão (login usa o wrapper próprio) ===== */
+body {
+  background: #0b1224;  /* escuro – só para a tela de login */
+  color: #e5e7eb;
+}
+
+/* ===== Override: quando estamos na Agenda ===== */
+body.agenda {
+  background: #ffffff;      /* FUNDO BRANCO */
+  color: #212529;           /* texto escuro padrão */
+}
