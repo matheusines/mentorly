@@ -15,7 +15,7 @@ type Lesson = {
   updated_at: string;
 };
 
-/** Hoje no fuso local p/ <input type="date"> */
+
 function todayLocalYMD(): string {
   const d = new Date();
   const y = d.getFullYear();
@@ -24,7 +24,7 @@ function todayLocalYMD(): string {
   return `${y}-${m}-${day}`;
 }
 
-/** Monta RFC3339 com offset local (sem usar toISOString) */
+
 function buildRFC3339WithOffset(dateStr: string, timeStr: string): string {
   const [y, m, d] = dateStr.split('-').map(Number);
   const [hh, mm]  = timeStr.split(':').map(Number);
@@ -44,7 +44,7 @@ function buildRFC3339WithOffset(dateStr: string, timeStr: string): string {
   return `${YYYY}-${MM}-${DD}T${HH}:${MI}:00${sign}${offH}:${offM}`;
 }
 
-/** Formata hora local */
+
 function fmtTimeLocal(isoLike: string) {
   const d = new Date(isoLike);
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -57,12 +57,6 @@ function ymdToSafeDate(ymd: string): Date {
   return new Date(Date.UTC(y, (m ?? 1) - 1, d ?? 1, 12, 0, 0));
 }
 
-/** (Opcional) Se quiser forçar +1 dia sempre (último caso): descomente */
-// function ymdToSafeDatePlusOne(ymd: string): Date {
-//   const dt = ymdToSafeDate(ymd);
-//   dt.setUTCDate(dt.getUTCDate() + 1);
-//   return dt;
-// }
 
 function byStartTimeAsc(a: Lesson, b: Lesson) {
   return new Date(a.start_time).getTime() - new Date(b.start_time).getTime();
@@ -71,7 +65,7 @@ function byStartTimeAsc(a: Lesson, b: Lesson) {
 export default function AgendaPage() {
   const nav = useNavigate();
 
-  // Fundo branco só na Agenda
+  
   useEffect(() => {
     document.body.classList.add('agenda');
     return () => document.body.classList.remove('agenda');
@@ -132,7 +126,7 @@ export default function AgendaPage() {
     nav('/logout');
   }
 
-  // INSERT com offset explícito + update otimista
+  
   async function addLesson(e: React.FormEvent) {
     e.preventDefault();
     setMsg(null);
@@ -144,7 +138,7 @@ export default function AgendaPage() {
       const payload = {
         user_id: session.user.id,
         student_name: student.trim(),
-        start_time: buildRFC3339WithOffset(dateStr, timeStr), // 👈 sem toISOString()
+        start_time: buildRFC3339WithOffset(dateStr, timeStr),
         location: location.trim(),
       };
       if (!payload.student_name || !payload.location) {
@@ -174,7 +168,7 @@ export default function AgendaPage() {
     }
   }
 
-  // DELETE otimista
+  
   async function removeLesson(id: string) {
     if (!confirm('Excluir esta aula?')) return;
     const prev = lessons;
@@ -189,7 +183,7 @@ export default function AgendaPage() {
     }
   }
 
-  // Agrupa pelo DIA vindo do BD (start_date)
+  
   const groups = useMemo(() => {
     const map = new Map<string, Lesson[]>();
     for (const l of lessons) {
