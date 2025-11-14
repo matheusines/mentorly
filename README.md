@@ -51,6 +51,19 @@ O projeto é dividido em um Frontend (React) e um Backend (Node.js/Express) que 
     * A lista de aulas na agenda é atualizada automaticamente para o usuário sempre que uma nova aula é adicionada ou removida, sem a necessidade de recarregar a página.
 
 
+## Demonstração (Showcase)
+
+Telas da aplicação em funcionamento:
+
+### Página de Login
+[Página de Login]
+<img width="1159" height="843" alt="mentorly login" src="https://github.com/user-attachments/assets/7303febf-726f-4a27-b780-2328a692cf09" />
+
+### Painel de Agendamento (portal do professor)
+[Painel de Agendamento com Aulas]
+<img width="1863" height="631" alt="Portal do professor" src="https://github.com/user-attachments/assets/b8871033-9bcc-4b38-82ac-d834e477e700" />
+
+
 ## Como Rodar Localmente
 
 ### Pré-requisitos
