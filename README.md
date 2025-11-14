@@ -59,7 +59,7 @@ O projeto é dividido em um Frontend (React) e um Backend (Node.js/Express) que 
 
 ---
 
-### 1. Configurar o Backend (API Node.js)
+### Comandos
 
 1.  Instale as dependências (usando `ci` para garantir consistência) # (use um terminal na pasta do frontend):
     ```bash
