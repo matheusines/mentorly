@@ -43,7 +43,7 @@ export default function AuthForm() {
       if (mode === 'signup') {
         const { error } = await supabase.auth.signUp({ email, password });
         if (error) { setIsError(true); setMsg(error.message); return; }
-        setMsg('Conta criada! Verifique seu e-mail se a confirmação estiver habilitada.');
+        setMsg('Conta criada! Verifique seu e-mail.');
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) { setIsError(true); setMsg(error.message); return; }
