@@ -1,6 +1,6 @@
 # Sistema de Agendamento de Aulas (Mentorly)
 
-Um sistema de agendamento de aulas para professores. Este projeto implementa autenticação segura, um painel de usuário protegido e gerenciamento de aulas com atualizações em tempo real.
+Nosso projeto se trata de um sistema de agendamento de aulas para professores. Este projeto atualmente implementa autenticação segura, um painel de usuário protegido e gerenciamento de aulas com atualizações em tempo real. O cliente por trás do projeto é um amigo de um dos integrantes do grupo, que trabalha com aulas particulares e buscava uma plataforma para agendar suas aulas.
 
 ## Stack de Tecnologias
 
