@@ -70,8 +70,6 @@ Telas da aplicação em funcionamento:
 
 * **Node.js** (v18 ou superior) e **npm**.
 
-* Configurar o arquivo .env.local localizado dentro da pasta frontend, ou ainda, substitui-lo com um arquivo que possua as credenciais VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY
-
 ---
 
 ### Comandos
