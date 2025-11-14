@@ -89,4 +89,4 @@ A aplicação estará disponível em `http://localhost:5173`.
 # Integrantes:
 Diogo Barboza de Souza 12745657  
 Matheus dos Santos Ines 12546784  
-Yudi Asano Ramos 1287355
+Yudi Asano Ramos 12873553
