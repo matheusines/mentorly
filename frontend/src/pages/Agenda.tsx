@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts';
 
 import './agenda-aulas.css';
 
@@ -11,6 +12,8 @@ type Lesson = {
   start_time: string;   // timestamptz
   start_date?: string;  // date (YYYY-MM-DD) vindo do BD
   location: string;
+  value?: number;       // valor da aula
+  notification_email?: string; // email para notificação
   created_at: string;
   updated_at: string;
 };
@@ -62,6 +65,58 @@ function byStartTimeAsc(a: Lesson, b: Lesson) {
   return new Date(a.start_time).getTime() - new Date(b.start_time).getTime();
 }
 
+// Funções para gerenciar valores das aulas no localStorage
+function getLessonValues(): Record<string, number> {
+  try {
+    const stored = localStorage.getItem('lesson_values');
+    return stored ? JSON.parse(stored) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveLessonValue(lessonId: string, value: number | null) {
+  const values = getLessonValues();
+  if (value !== null && value > 0) {
+    values[lessonId] = value;
+  } else {
+    delete values[lessonId];
+  }
+  localStorage.setItem('lesson_values', JSON.stringify(values));
+}
+
+function deleteLessonValue(lessonId: string) {
+  const values = getLessonValues();
+  delete values[lessonId];
+  localStorage.setItem('lesson_values', JSON.stringify(values));
+}
+
+// Funções para gerenciar emails de notificação das aulas no localStorage
+function getLessonEmails(): Record<string, string> {
+  try {
+    const stored = localStorage.getItem('lesson_emails');
+    return stored ? JSON.parse(stored) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveLessonEmail(lessonId: string, email: string | null) {
+  const emails = getLessonEmails();
+  if (email && email.trim()) {
+    emails[lessonId] = email.trim();
+  } else {
+    delete emails[lessonId];
+  }
+  localStorage.setItem('lesson_emails', JSON.stringify(emails));
+}
+
+function deleteLessonEmail(lessonId: string) {
+  const emails = getLessonEmails();
+  delete emails[lessonId];
+  localStorage.setItem('lesson_emails', JSON.stringify(emails));
+}
+
 export default function AgendaPage() {
   const nav = useNavigate();
 
@@ -80,6 +135,8 @@ export default function AgendaPage() {
   const [dateStr, setDateStr] = useState(() => todayLocalYMD());
   const [timeStr, setTimeStr] = useState('09:00');
   const [location, setLocation] = useState('');
+  const [value, setValue] = useState('');
+  const [notificationEmail, setNotificationEmail] = useState('');
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -101,7 +158,17 @@ export default function AgendaPage() {
         .select('id,user_id,student_name,start_time,start_date,location,created_at,updated_at')
         .order('start_time', { ascending: true });
       if (error) throw error;
-      setLessons((data ?? []) as Lesson[]);
+      
+      // Carrega valores e emails do localStorage e adiciona às aulas
+      const values = getLessonValues();
+      const emails = getLessonEmails();
+      const lessonsWithValues = (data ?? []).map((lesson: any) => ({
+        ...lesson,
+        value: values[lesson.id] || undefined,
+        notification_email: emails[lesson.id] || undefined,
+      })) as Lesson[];
+      
+      setLessons(lessonsWithValues);
     } catch (e) {
       console.error(e);
       setMsg('Não foi possível carregar suas aulas.');
@@ -154,12 +221,65 @@ export default function AgendaPage() {
       if (error) throw error;
 
       if (data) {
-        setLessons(prev => [...prev, data as Lesson].sort(byStartTimeAsc));
+        // Salva o valor no localStorage se fornecido
+        const lessonValue = value && value.trim() ? parseFloat(value.replace(',', '.')) : null;
+        if (lessonValue && lessonValue > 0) {
+          saveLessonValue(data.id, lessonValue);
+        }
+        
+        // Salva o email de notificação se fornecido
+        const email = notificationEmail && notificationEmail.trim() ? notificationEmail.trim() : null;
+        if (email) {
+          saveLessonEmail(data.id, email);
+          
+          // Envia email de notificação
+          try {
+            const { data: { session } } = await supabase.auth.getSession();
+            const formattedDate = ymdToSafeDate(data.start_date ?? data.start_time.slice(0, 10))
+              .toLocaleDateString('pt-BR', {
+                weekday: 'long',
+                day: '2-digit',
+                month: 'long',
+                year: 'numeric'
+              });
+            const formattedTime = fmtTimeLocal(data.start_time);
+            
+            await fetch(`${import.meta.env.VITE_API_BASE || 'http://localhost:3000'}/api/lessons/notify`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${session?.access_token}`,
+              },
+              body: JSON.stringify({
+                email,
+                studentName: data.student_name,
+                date: formattedDate,
+                time: formattedTime,
+                location: data.location,
+                value: lessonValue,
+              }),
+            });
+          } catch (emailError) {
+            console.error('Erro ao enviar email:', emailError);
+            // Não bloqueia a criação da aula se o email falhar
+          }
+        }
+        
+        // Adiciona o valor e email à aula antes de adicionar ao estado
+        const lessonWithValue = {
+          ...data,
+          value: lessonValue && lessonValue > 0 ? lessonValue : undefined,
+          notification_email: email || undefined,
+        } as Lesson;
+        
+        setLessons(prev => [...prev, lessonWithValue].sort(byStartTimeAsc));
       }
 
       setStudent('');
       setTimeStr('09:00');
       setLocation('');
+      setValue('');
+      setNotificationEmail('');
     } catch (e: any) {
       console.error(e);
       setMsg(e?.message ?? 'Erro ao salvar.');
@@ -176,6 +296,9 @@ export default function AgendaPage() {
     try {
       const { error } = await supabase.from('lessons').delete().eq('id', id);
       if (error) throw error;
+      // Remove o valor e email do localStorage também
+      deleteLessonValue(id);
+      deleteLessonEmail(id);
     } catch (e) {
       console.error(e);
       setMsg('Não foi possível excluir.');
@@ -193,6 +316,43 @@ export default function AgendaPage() {
       map.set(key, arr);
     }
     return Array.from(map.entries()).sort(([a],[b]) => a.localeCompare(b));
+  }, [lessons]);
+
+  // Estatísticas para o dashboard
+  const stats = useMemo(() => {
+    const now = new Date();
+    const past = lessons.filter(l => new Date(l.start_time) < now);
+    const future = lessons.filter(l => new Date(l.start_time) >= now);
+    const totalValue = lessons.reduce((sum, l) => sum + (l.value || 0), 0);
+    const pastValue = past.reduce((sum, l) => sum + (l.value || 0), 0);
+    const futureValue = future.reduce((sum, l) => sum + (l.value || 0), 0);
+
+    return {
+      total: lessons.length,
+      past: past.length,
+      future: future.length,
+      totalValue,
+      pastValue,
+      futureValue,
+    };
+  }, [lessons]);
+
+  // Dados para o gráfico de pizza
+  const chartData = useMemo(() => {
+    const COLORS = ['#10b981', '#f59e0b', '#6366f1'];
+    return [
+      { name: 'Aulas Realizadas', value: stats.past, color: COLORS[0] },
+      { name: 'Aulas Futuras', value: stats.future, color: COLORS[1] },
+    ];
+  }, [stats]);
+
+  // Próxima aula
+  const nextLesson = useMemo(() => {
+    const now = new Date();
+    const futureLessons = lessons
+      .filter(l => new Date(l.start_time) >= now)
+      .sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime());
+    return futureLessons[0] || null;
   }, [lessons]);
 
   return (
@@ -260,6 +420,185 @@ export default function AgendaPage() {
               </button>
             </div>
 
+            {/* Dashboard com Estatísticas */}
+            <div className="card shadow-sm day-panel-card mb-4">
+              <div className="card-header">
+                <h5 className="mb-0"><i className="bi bi-graph-up me-2"></i>Dashboard</h5>
+              </div>
+              <div className="card-body">
+                <div className="row g-4">
+                  {/* Gráfico de Pizza */}
+                  <div className="col-md-6 col-lg-5">
+                    <h6 className="mb-3">Distribuição de Aulas</h6>
+                    {stats.total > 0 ? (
+                      <ResponsiveContainer width="100%" height={250}>
+                        <PieChart>
+                          <Pie
+                            data={chartData}
+                            cx="50%"
+                            cy="50%"
+                            labelLine={false}
+                            label={({ name, value, percent }) => 
+                              `${name}: ${value} (${percent ? (percent * 100).toFixed(0) : 0}%)`
+                            }
+                            outerRadius={80}
+                            fill="#8884d8"
+                            dataKey="value"
+                          >
+                            {chartData.map((entry, index) => (
+                              <Cell key={`cell-${index}`} fill={entry.color} />
+                            ))}
+                          </Pie>
+                          <Tooltip />
+                          <Legend />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <div className="text-muted text-center py-5">
+                        <i className="bi bi-pie-chart" style={{ fontSize: '3rem' }}></i>
+                        <p className="mt-2">Nenhuma aula cadastrada</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Estatísticas */}
+                  <div className="col-md-6 col-lg-7">
+                    <h6 className="mb-3">Estatísticas</h6>
+                    <div className="row g-3">
+                      <div className="col-6">
+                        <div className="stat-card">
+                          <div className="stat-icon" style={{ background: '#e0f2fe', color: '#0369a1' }}>
+                            <i className="bi bi-calendar-check"></i>
+                          </div>
+                          <div className="stat-content">
+                            <div className="stat-value">{stats.total}</div>
+                            <div className="stat-label">Total de Aulas</div>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="col-6">
+                        <div className="stat-card">
+                          <div className="stat-icon" style={{ background: '#dcfce7', color: '#166534' }}>
+                            <i className="bi bi-check-circle"></i>
+                          </div>
+                          <div className="stat-content">
+                            <div className="stat-value">{stats.past}</div>
+                            <div className="stat-label">Aulas Realizadas</div>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="col-6">
+                        <div className="stat-card">
+                          <div className="stat-icon" style={{ background: '#fef3c7', color: '#92400e' }}>
+                            <i className="bi bi-clock"></i>
+                          </div>
+                          <div className="stat-content">
+                            <div className="stat-value">{stats.future}</div>
+                            <div className="stat-label">Aulas Futuras</div>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="col-6">
+                        <div className="stat-card">
+                          <div className="stat-icon" style={{ background: '#f3e8ff', color: '#6b21a8' }}>
+                            <i className="bi bi-currency-dollar"></i>
+                          </div>
+                          <div className="stat-content">
+                            <div className="stat-value">R$ {stats.totalValue.toFixed(2)}</div>
+                            <div className="stat-label">Valor Total</div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="mt-4 pt-3 border-top">
+                      <div className="row g-2 text-muted small">
+                        <div className="col-6">
+                          <i className="bi bi-check-circle-fill text-success me-1"></i>
+                          Recebido: <strong>R$ {stats.pastValue.toFixed(2)}</strong>
+                        </div>
+                        <div className="col-6">
+                          <i className="bi bi-clock-fill text-warning me-1"></i>
+                          A receber: <strong>R$ {stats.futureValue.toFixed(2)}</strong>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Próxima Aula - Destaque */}
+            {nextLesson ? (
+              <div className="next-lesson-card mb-4">
+                <div className="next-lesson-header">
+                  <i className="bi bi-clock-history me-2"></i>
+                  <span>Próxima Aula</span>
+                </div>
+                <div className="next-lesson-content">
+                  <div className="next-lesson-main">
+                    <div className="next-lesson-student">
+                      <i className="bi bi-person-circle me-2"></i>
+                      <span className="next-lesson-name">{nextLesson.student_name}</span>
+                    </div>
+                    <div className="next-lesson-details">
+                      <div className="next-lesson-detail-item">
+                        <i className="bi bi-calendar-event me-2"></i>
+                        <span>
+                          {ymdToSafeDate(nextLesson.start_date ?? nextLesson.start_time.slice(0, 10))
+                            .toLocaleDateString('pt-BR', {
+                              weekday: 'long',
+                              day: '2-digit',
+                              month: 'long',
+                              year: 'numeric'
+                            })}
+                        </span>
+                      </div>
+                      <div className="next-lesson-detail-item">
+                        <i className="bi bi-clock me-2"></i>
+                        <span>{fmtTimeLocal(nextLesson.start_time)}</span>
+                      </div>
+                      <div className="next-lesson-detail-item">
+                        <i className="bi bi-geo-alt me-2"></i>
+                        <span>{nextLesson.location}</span>
+                      </div>
+                      {nextLesson.value && (
+                        <div className="next-lesson-detail-item">
+                          <i className="bi bi-currency-dollar me-2"></i>
+                          <span className="next-lesson-value">R$ {nextLesson.value.toFixed(2)}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="next-lesson-time-remaining">
+                    {(() => {
+                      const now = new Date();
+                      const lessonDate = new Date(nextLesson.start_time);
+                      const diff = lessonDate.getTime() - now.getTime();
+                      const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+                      const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+                      const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+                      
+                      if (days > 0) {
+                        return `${days} ${days === 1 ? 'dia' : 'dias'} e ${hours}h`;
+                      } else if (hours > 0) {
+                        return `${hours}h e ${minutes}min`;
+                      } else {
+                        return `${minutes}min`;
+                      }
+                    })()}
+                    <span className="next-lesson-time-label"> restantes</span>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="next-lesson-card mb-4 next-lesson-empty">
+                <div className="next-lesson-content text-center py-4">
+                  <i className="bi bi-calendar-x" style={{ fontSize: '3rem', color: '#9ca3af' }}></i>
+                  <p className="mt-3 mb-0 text-muted">Nenhuma aula agendada</p>
+                </div>
+              </div>
+            )}
+
             <div id="form" className="card shadow-sm day-panel-card mb-4">
               <div className="card-header">
                 <h5 className="mb-0">Nova aula</h5>
@@ -286,6 +625,19 @@ export default function AgendaPage() {
                     <label className="agenda-label">Local</label>
                     <input className="agenda-input" type="text" placeholder="Sala 12 / Online / Biblioteca..."
                            value={location} onChange={(e) => setLocation(e.target.value)} required />
+                  </div>
+                  <div>
+                    <label className="agenda-label">Valor (R$)</label>
+                    <input className="agenda-input" type="number" step="0.01" min="0" placeholder="0.00"
+                           value={value} onChange={(e) => setValue(e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="agenda-label">Email para Notificação</label>
+                    <input className="agenda-input" type="email" placeholder="aluno@exemplo.com"
+                           value={notificationEmail} onChange={(e) => setNotificationEmail(e.target.value)} />
+                    <small className="text-muted" style={{ fontSize: '11px', display: 'block', marginTop: '4px' }}>
+                      Enviaremos um email quando a aula for criada
+                    </small>
                   </div>
 
                   <div className="form-actions">
@@ -326,6 +678,9 @@ export default function AgendaPage() {
                                 <div className="task-title">
                                   {l.student_name}
                                   <span className="task-time"> • {tm}</span>
+                                  {l.value && (
+                                    <span className="task-value"> • R$ {l.value.toFixed(2)}</span>
+                                  )}
                                 </div>
                                 <div className="task-sub">{l.location}</div>
                               </div>
