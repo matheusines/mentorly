@@ -1,11 +1,23 @@
 import express from 'express';
 import cors from 'cors';
 import 'dotenv/config';
+import nodemailer from 'nodemailer';
 import { requireAuth } from './authMiddleware.js';
 
 const app = express();
 app.use(cors({ origin: ['http://localhost:5173'] }));
 app.use(express.json());
+
+// Configurar transporter de email
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST || 'smtp.gmail.com',
+  port: parseInt(process.env.SMTP_PORT || '587'),
+  secure: process.env.SMTP_SECURE === 'true', // true para 465, false para outras portas
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
+  },
+});
 
 // Healthcheck
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
@@ -34,6 +46,112 @@ app.patch('/api/profiles/me', requireAuth, async (req, res) => {
     .single();
   if (error) return res.status(400).json({ error: error.message });
   res.json({ profile: data });
+});
+
+// Endpoint para enviar notificação de aula
+app.post('/api/lessons/notify', requireAuth, async (req, res) => {
+  try {
+    const { email, studentName, date, time, location, value } = req.body;
+
+    if (!email || !studentName || !date || !time || !location) {
+      return res.status(400).json({ error: 'Dados incompletos' });
+    }
+
+    if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
+      console.warn('SMTP não configurado. Email não será enviado.');
+      return res.json({ message: 'Email não configurado', sent: false });
+    }
+
+    const valueText = value ? `\nValor: R$ ${parseFloat(value).toFixed(2)}` : '';
+    
+    const mailOptions = {
+      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+      to: email,
+      subject: `Aula agendada - ${studentName}`,
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
+            .content { background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }
+            .info-box { background: white; padding: 20px; margin: 15px 0; border-radius: 8px; border-left: 4px solid #667eea; }
+            .info-label { font-weight: bold; color: #667eea; margin-bottom: 5px; }
+            .footer { text-align: center; margin-top: 20px; color: #666; font-size: 12px; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>📚 Aula Agendada!</h1>
+            </div>
+            <div class="content">
+              <p>Olá!</p>
+              <p>Uma nova aula foi agendada com os seguintes detalhes:</p>
+              
+              <div class="info-box">
+                <div class="info-label">👤 Aluno:</div>
+                <div>${studentName}</div>
+              </div>
+              
+              <div class="info-box">
+                <div class="info-label">📅 Data:</div>
+                <div>${date}</div>
+              </div>
+              
+              <div class="info-box">
+                <div class="info-label">🕐 Horário:</div>
+                <div>${time}</div>
+              </div>
+              
+              <div class="info-box">
+                <div class="info-label">📍 Local:</div>
+                <div>${location}</div>
+              </div>
+              
+              ${value ? `
+              <div class="info-box">
+                <div class="info-label">💰 Valor:</div>
+                <div>R$ ${parseFloat(value).toFixed(2)}</div>
+              </div>
+              ` : ''}
+              
+              <p style="margin-top: 20px;">Nos vemos em breve!</p>
+              
+              <div class="footer">
+                <p>Este é um email automático do sistema Mentorly.</p>
+              </div>
+            </div>
+          </div>
+        </body>
+        </html>
+      `,
+      text: `
+Aula Agendada!
+
+Uma nova aula foi agendada com os seguintes detalhes:
+
+Aluno: ${studentName}
+Data: ${date}
+Horário: ${time}
+Local: ${location}${valueText}
+
+Nos vemos em breve!
+
+---
+Este é um email automático do sistema Mentorly.
+      `,
+    };
+
+    await transporter.sendMail(mailOptions);
+    res.json({ message: 'Email enviado com sucesso', sent: true });
+  } catch (error) {
+    console.error('Erro ao enviar email:', error);
+    res.status(500).json({ error: 'Erro ao enviar email', details: error.message });
+  }
 });
 
 const port = process.env.PORT || 3000;
