@@ -60,7 +60,7 @@ function byStartTimeAsc(a: Lesson, b: Lesson) {
   return new Date(a.start_time).getTime() - new Date(b.start_time).getTime();
 }
 
-// Funções para gerenciar valores das aulas no localStorage
+// ===== Valores das aulas no localStorage =====
 function getLessonValues(): Record<string, number> {
   try {
     const stored = localStorage.getItem('lesson_values');
@@ -86,7 +86,7 @@ function deleteLessonValue(lessonId: string) {
   localStorage.setItem('lesson_values', JSON.stringify(values));
 }
 
-// Funções para gerenciar emails de notificação das aulas no localStorage
+// ===== Emails de notificação no localStorage =====
 function getLessonEmails(): Record<string, string> {
   try {
     const stored = localStorage.getItem('lesson_emails');
@@ -153,7 +153,6 @@ export default function AgendaPage() {
         .order('start_time', { ascending: true });
       if (error) throw error;
       
-      // Carrega valores e emails do localStorage e adiciona às aulas
       const values = getLessonValues();
       const emails = getLessonEmails();
       const lessonsWithValues = (data ?? []).map((lesson: any) => ({
@@ -172,7 +171,7 @@ export default function AgendaPage() {
   }
   useEffect(() => { loadLessons(); }, []);
 
-  // Realtime
+  // Realtime Supabase
   useEffect(() => {
     const channel = supabase
       .channel('public:lessons')
@@ -187,6 +186,7 @@ export default function AgendaPage() {
     nav('/logout');
   }
 
+  // ===== addLesson (corrigido para não duplicar) =====
   async function addLesson(e: React.FormEvent) {
     e.preventDefault();
     setMsg(null);
@@ -214,53 +214,55 @@ export default function AgendaPage() {
       if (error) throw error;
 
       if (data) {
-        // Salva o valor no localStorage se fornecido
-        const lessonValue = value && value.trim() ? parseFloat(value.replace(',', '.')) : null;
+        // Valor da aula
+        const lessonValue =
+          value && value.trim() ? parseFloat(value.replace(',', '.')) : null;
         if (lessonValue && lessonValue > 0) {
           saveLessonValue(data.id, lessonValue);
         }
-        
-        // Salva o email de notificação se fornecido
-        const email = notificationEmail && notificationEmail.trim() ? notificationEmail.trim() : null;
+
+        // Email de notificação
+        const email =
+          notificationEmail && notificationEmail.trim()
+            ? notificationEmail.trim()
+            : null;
+
         if (email) {
           saveLessonEmail(data.id, email);
-          
-          // Envia email de notificação + agenda lembrete (backend cuida disso)
+
+          // Envia email + agenda lembrete (backend cuida disso)
           try {
             const { data: sessionData } = await supabase.auth.getSession();
-            const session = sessionData.session;
+            const session2 = sessionData.session;
 
-            await fetch(`${import.meta.env.VITE_API_BASE || 'http://localhost:3000'}/api/lessons/notify`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${session?.access_token}`,
-              },
-              body: JSON.stringify({
-                email,
-                studentName: data.student_name,
-                date: dateStr,     // formato YYYY-MM-DD (direto do input)
-                time: timeStr,     // formato HH:MM (direto do input)
-                location: data.location,
-                value: lessonValue,
-              }),
-            });
+            await fetch(
+              `${import.meta.env.VITE_API_BASE || 'http://localhost:3000'}/api/lessons/notify`,
+              {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: `Bearer ${session2?.access_token}`,
+                },
+                body: JSON.stringify({
+                  email,
+                  studentName: data.student_name,
+                  date: dateStr,   // "YYYY-MM-DD"
+                  time: timeStr,   // "HH:MM"
+                  location: data.location,
+                  value: lessonValue,
+                }),
+              }
+            );
           } catch (emailError) {
             console.error('Erro ao enviar email:', emailError);
-            // Não bloqueia a criação da aula se o email falhar
           }
         }
-        
-        // Adiciona o valor e email à aula antes de adicionar ao estado
-        const lessonWithValue = {
-          ...data,
-          value: lessonValue && lessonValue > 0 ? lessonValue : undefined,
-          notification_email: email || undefined,
-        } as Lesson;
-        
-        setLessons(prev => [...prev, lessonWithValue].sort(byStartTimeAsc));
+
+        // 🔴 IMPORTANTE: em vez de setLessons manual → recarrega do banco
+        await loadLessons();
       }
 
+      // limpar formulário
       setStudent('');
       setTimeStr('09:00');
       setLocation('');
@@ -281,7 +283,6 @@ export default function AgendaPage() {
     try {
       const { error } = await supabase.from('lessons').delete().eq('id', id);
       if (error) throw error;
-      // Remove o valor e email do localStorage também
       deleteLessonValue(id);
       deleteLessonEmail(id);
     } catch (e) {
@@ -321,7 +322,6 @@ export default function AgendaPage() {
     };
   }, [lessons]);
 
-  // Dados para o gráfico de pizza
   const chartData = useMemo(() => {
     const COLORS = ['#10b981', '#f59e0b', '#6366f1'];
     return [
@@ -330,7 +330,6 @@ export default function AgendaPage() {
     ];
   }, [stats]);
 
-  // Próxima aula
   const nextLesson = useMemo(() => {
     const now = new Date();
     const futureLessons = lessons
@@ -404,14 +403,13 @@ export default function AgendaPage() {
               </button>
             </div>
 
-            {/* Dashboard com Estatísticas */}
+            {/* Dashboard */}
             <div className="card shadow-sm day-panel-card mb-4">
               <div className="card-header">
                 <h5 className="mb-0"><i className="bi bi-graph-up me-2"></i>Dashboard</h5>
               </div>
               <div className="card-body">
                 <div className="row g-4">
-                  {/* Gráfico de Pizza */}
                   <div className="col-md-6 col-lg-5">
                     <h6 className="mb-3">Distribuição de Aulas</h6>
                     {stats.total > 0 ? (
@@ -422,7 +420,7 @@ export default function AgendaPage() {
                             cx="50%"
                             cy="50%"
                             labelLine={false}
-                            label={({ name, value, percent }) => 
+                            label={({ name, value, percent }) =>
                               `${name}: ${value} (${percent ? (percent * 100).toFixed(0) : 0}%)`
                             }
                             outerRadius={80}
@@ -445,7 +443,6 @@ export default function AgendaPage() {
                     )}
                   </div>
 
-                  {/* Estatísticas */}
                   <div className="col-md-6 col-lg-7">
                     <h6 className="mb-3">Estatísticas</h6>
                     <div className="row g-3">
@@ -511,7 +508,7 @@ export default function AgendaPage() {
               </div>
             </div>
 
-            {/* Próxima Aula - Destaque */}
+            {/* Próxima aula */}
             {nextLesson ? (
               <div className="next-lesson-card mb-4">
                 <div className="next-lesson-header">
@@ -561,7 +558,7 @@ export default function AgendaPage() {
                       const days = Math.floor(diff / (1000 * 60 * 60 * 24));
                       const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
                       const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-                      
+
                       if (days > 0) {
                         return `${days} ${days === 1 ? 'dia' : 'dias'} e ${hours}h`;
                       } else if (hours > 0) {
@@ -583,6 +580,7 @@ export default function AgendaPage() {
               </div>
             )}
 
+            {/* Formulário */}
             <div id="form" className="card shadow-sm day-panel-card mb-4">
               <div className="card-header">
                 <h5 className="mb-0">Nova aula</h5>
@@ -633,6 +631,7 @@ export default function AgendaPage() {
               </div>
             </div>
 
+            {/* Lista de aulas */}
             <div className="card shadow-sm day-panel-card">
               <div className="card-header d-flex justify-content-between align-items-center">
                 <h5 className="mb-0">Suas aulas</h5>
@@ -650,9 +649,6 @@ export default function AgendaPage() {
                           {ymdToSafeDate(day).toLocaleDateString('pt-BR', {
                             weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric'
                           })}
-                          {/* Se quiser forçar +1 dia no visual, troque por:
-                          {ymdToSafeDatePlusOne(day).toLocaleDateString('pt-BR', {...})}
-                          */}
                         </div>
                         {items.map((l) => {
                           const tm = fmtTimeLocal(l.start_time);
