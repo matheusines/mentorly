@@ -18,7 +18,6 @@ type Lesson = {
   updated_at: string;
 };
 
-
 function todayLocalYMD(): string {
   const d = new Date();
   const y = d.getFullYear();
@@ -26,7 +25,6 @@ function todayLocalYMD(): string {
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
 }
-
 
 function buildRFC3339WithOffset(dateStr: string, timeStr: string): string {
   const [y, m, d] = dateStr.split('-').map(Number);
@@ -47,19 +45,16 @@ function buildRFC3339WithOffset(dateStr: string, timeStr: string): string {
   return `${YYYY}-${MM}-${DD}T${HH}:${MI}:00${sign}${offH}:${offM}`;
 }
 
-
 function fmtTimeLocal(isoLike: string) {
   const d = new Date(isoLike);
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
-
 
 function ymdToSafeDate(ymd: string): Date {
   const [y, m, d] = ymd.split('-').map(Number);
   // 12:00 UTC garante que, ao converter p/ local, não “volta” o dia
   return new Date(Date.UTC(y, (m ?? 1) - 1, d ?? 1, 12, 0, 0));
 }
-
 
 function byStartTimeAsc(a: Lesson, b: Lesson) {
   return new Date(a.start_time).getTime() - new Date(b.start_time).getTime();
@@ -120,7 +115,6 @@ function deleteLessonEmail(lessonId: string) {
 export default function AgendaPage() {
   const nav = useNavigate();
 
-  
   useEffect(() => {
     document.body.classList.add('agenda');
     return () => document.body.classList.remove('agenda');
@@ -193,7 +187,6 @@ export default function AgendaPage() {
     nav('/logout');
   }
 
-  
   async function addLesson(e: React.FormEvent) {
     e.preventDefault();
     setMsg(null);
@@ -232,18 +225,11 @@ export default function AgendaPage() {
         if (email) {
           saveLessonEmail(data.id, email);
           
-          // Envia email de notificação
+          // Envia email de notificação + agenda lembrete (backend cuida disso)
           try {
-            const { data: { session } } = await supabase.auth.getSession();
-            const formattedDate = ymdToSafeDate(data.start_date ?? data.start_time.slice(0, 10))
-              .toLocaleDateString('pt-BR', {
-                weekday: 'long',
-                day: '2-digit',
-                month: 'long',
-                year: 'numeric'
-              });
-            const formattedTime = fmtTimeLocal(data.start_time);
-            
+            const { data: sessionData } = await supabase.auth.getSession();
+            const session = sessionData.session;
+
             await fetch(`${import.meta.env.VITE_API_BASE || 'http://localhost:3000'}/api/lessons/notify`, {
               method: 'POST',
               headers: {
@@ -253,8 +239,8 @@ export default function AgendaPage() {
               body: JSON.stringify({
                 email,
                 studentName: data.student_name,
-                date: formattedDate,
-                time: formattedTime,
+                date: dateStr,     // formato YYYY-MM-DD (direto do input)
+                time: timeStr,     // formato HH:MM (direto do input)
                 location: data.location,
                 value: lessonValue,
               }),
@@ -288,7 +274,6 @@ export default function AgendaPage() {
     }
   }
 
-  
   async function removeLesson(id: string) {
     if (!confirm('Excluir esta aula?')) return;
     const prev = lessons;
@@ -306,7 +291,6 @@ export default function AgendaPage() {
     }
   }
 
-  
   const groups = useMemo(() => {
     const map = new Map<string, Lesson[]>();
     for (const l of lessons) {
@@ -364,7 +348,7 @@ export default function AgendaPage() {
             <span className="navbar-toggler-icon"></span>
           </button>
 
-        <Link className="navbar-brand fw-bold" to="/agenda">
+          <Link className="navbar-brand fw-bold" to="/agenda">
             <i className="bi bi-person-badge-fill me-2"></i>Portal do Professor
           </Link>
 
@@ -636,7 +620,7 @@ export default function AgendaPage() {
                     <input className="agenda-input" type="email" placeholder="aluno@exemplo.com"
                            value={notificationEmail} onChange={(e) => setNotificationEmail(e.target.value)} />
                     <small className="text-muted" style={{ fontSize: '11px', display: 'block', marginTop: '4px' }}>
-                      Enviaremos um email quando a aula for criada
+                      Enviaremos um email quando a aula for criada e um lembrete 1 dia antes
                     </small>
                   </div>
 
