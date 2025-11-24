@@ -53,8 +53,8 @@ router.post("/", async (req, res) => {
           date,
           time,
           location,
-          // não mexemos no schema do Supabase:
-          // NÃO estamos salvando o email no banco aqui
+          
+          
         },
       ])
       .select()

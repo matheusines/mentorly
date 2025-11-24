@@ -12,8 +12,8 @@ type Lesson = {
   start_time: string;   // timestamptz
   start_date?: string;  // date (YYYY-MM-DD) vindo do BD
   location: string;
-  value?: number;       // valor da aula
-  notification_email?: string; // email para notificação
+  value?: number;       // valor da aula (localStorage)
+  notification_email?: string; // email para notificação (localStorage)
   created_at: string;
   updated_at: string;
 };
@@ -50,14 +50,18 @@ function fmtTimeLocal(isoLike: string) {
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
+// para preencher <input type="time" />
+function toInputTime(isoLike: string): string {
+  const d = new Date(isoLike);
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  return `${hh}:${mm}`;
+}
+
 function ymdToSafeDate(ymd: string): Date {
   const [y, m, d] = ymd.split('-').map(Number);
   // 12:00 UTC garante que, ao converter p/ local, não “volta” o dia
   return new Date(Date.UTC(y, (m ?? 1) - 1, d ?? 1, 12, 0, 0));
-}
-
-function byStartTimeAsc(a: Lesson, b: Lesson) {
-  return new Date(a.start_time).getTime() - new Date(b.start_time).getTime();
 }
 
 // ===== Valores das aulas no localStorage =====
@@ -115,6 +119,7 @@ function deleteLessonEmail(lessonId: string) {
 export default function AgendaPage() {
   const nav = useNavigate();
 
+  // fundo branco
   useEffect(() => {
     document.body.classList.add('agenda');
     return () => document.body.classList.remove('agenda');
@@ -133,6 +138,19 @@ export default function AgendaPage() {
   const [notificationEmail, setNotificationEmail] = useState('');
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+
+  // modo edição
+  const [editingLessonId, setEditingLessonId] = useState<string | null>(null);
+
+  function resetLessonForm() {
+    setStudent('');
+    // mantém a data escolhida
+    setTimeStr('09:00');
+    setLocation('');
+    setValue('');
+    setNotificationEmail('');
+    setEditingLessonId(null);
+  }
 
   // nome do usuário
   useEffect(() => {
@@ -186,7 +204,23 @@ export default function AgendaPage() {
     nav('/logout');
   }
 
-  // ===== addLesson (corrigido para não duplicar) =====
+  function startEditLesson(lesson: Lesson) {
+    setEditingLessonId(lesson.id);
+    setStudent(lesson.student_name);
+    const day = lesson.start_date ?? lesson.start_time.slice(0, 10);
+    setDateStr(day);
+    setTimeStr(toInputTime(lesson.start_time));
+    setLocation(lesson.location);
+    setValue(lesson.value ? lesson.value.toString() : '');
+    setNotificationEmail(lesson.notification_email ?? '');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function cancelEditLesson() {
+    resetLessonForm();
+  }
+
+  // ===== Create/Update lesson =====
   async function addLesson(e: React.FormEvent) {
     e.preventDefault();
     setMsg(null);
@@ -206,68 +240,94 @@ export default function AgendaPage() {
         return;
       }
 
-      const { data, error } = await supabase
-        .from('lessons')
-        .insert(payload)
-        .select('id,user_id,student_name,start_time,start_date,location,created_at,updated_at')
-        .single();
-      if (error) throw error;
+      // valor e email são usados nos dois casos (create/update)
+      const lessonValue =
+        value && value.trim() ? parseFloat(value.replace(',', '.')) : null;
 
-      if (data) {
-        // Valor da aula
-        const lessonValue =
-          value && value.trim() ? parseFloat(value.replace(',', '.')) : null;
+      const email =
+        notificationEmail && notificationEmail.trim()
+          ? notificationEmail.trim()
+          : null;
+
+      if (editingLessonId) {
+        // UPDATE
+        const { error } = await supabase
+          .from('lessons')
+          .update({
+            student_name: payload.student_name,
+            start_time: payload.start_time,
+            location: payload.location,
+          })
+          .eq('id', editingLessonId);
+
+        if (error) throw error;
+
+        // atualiza valor/email no localStorage
         if (lessonValue && lessonValue > 0) {
-          saveLessonValue(data.id, lessonValue);
+          saveLessonValue(editingLessonId, lessonValue);
+        } else {
+          deleteLessonValue(editingLessonId);
         }
-
-        // Email de notificação
-        const email =
-          notificationEmail && notificationEmail.trim()
-            ? notificationEmail.trim()
-            : null;
 
         if (email) {
-          saveLessonEmail(data.id, email);
-
-          // Envia email + agenda lembrete (backend cuida disso)
-          try {
-            const { data: sessionData } = await supabase.auth.getSession();
-            const session2 = sessionData.session;
-
-            await fetch(
-              `${import.meta.env.VITE_API_BASE || 'http://localhost:3000'}/api/lessons/notify`,
-              {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  Authorization: `Bearer ${session2?.access_token}`,
-                },
-                body: JSON.stringify({
-                  email,
-                  studentName: data.student_name,
-                  date: dateStr,   // "YYYY-MM-DD"
-                  time: timeStr,   // "HH:MM"
-                  location: data.location,
-                  value: lessonValue,
-                }),
-              }
-            );
-          } catch (emailError) {
-            console.error('Erro ao enviar email:', emailError);
-          }
+          saveLessonEmail(editingLessonId, email);
+        } else {
+          deleteLessonEmail(editingLessonId);
         }
 
-        // 🔴 IMPORTANTE: em vez de setLessons manual → recarrega do banco
         await loadLessons();
+        setEditingLessonId(null);
+      } else {
+        // CREATE
+        const { data, error } = await supabase
+          .from('lessons')
+          .insert(payload)
+          .select('id,user_id,student_name,start_time,start_date,location,created_at,updated_at')
+          .single();
+        if (error) throw error;
+
+        if (data) {
+          if (lessonValue && lessonValue > 0) {
+            saveLessonValue(data.id, lessonValue);
+          }
+
+          if (email) {
+            saveLessonEmail(data.id, email);
+
+            // Envia email + agenda lembrete (backend cuida disso)
+            try {
+              const { data: sessionData } = await supabase.auth.getSession();
+              const session2 = sessionData.session;
+
+              await fetch(
+                `${import.meta.env.VITE_API_BASE || 'http://localhost:3000'}/api/lessons/notify`,
+                {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${session2?.access_token}`,
+                  },
+                  body: JSON.stringify({
+                    email,
+                    studentName: data.student_name,
+                    date: dateStr,   // "YYYY-MM-DD"
+                    time: timeStr,   // "HH:MM"
+                    location: data.location,
+                    value: lessonValue,
+                  }),
+                }
+              );
+            } catch (emailError) {
+              console.error('Erro ao enviar email:', emailError);
+            }
+          }
+
+          await loadLessons();
+        }
       }
 
       // limpar formulário
-      setStudent('');
-      setTimeStr('09:00');
-      setLocation('');
-      setValue('');
-      setNotificationEmail('');
+      resetLessonForm();
     } catch (e: any) {
       console.error(e);
       setMsg(e?.message ?? 'Erro ao salvar.');
@@ -384,7 +444,16 @@ export default function AgendaPage() {
           <nav id="sidebar" className="col-md-3 col-lg-2 d-md-block sidebar collapse">
             <div className="position-sticky pt-3">
               <ul className="nav flex-column">
-                <li className="nav-item"><span className="nav-link active"><i className="bi bi-calendar-week me-2"></i>Agenda</span></li>
+                <li className="nav-item">
+                  <span className="nav-link active">
+                    <i className="bi bi-calendar-week me-2"></i>Agenda
+                  </span>
+                </li>
+                <li className="nav-item">
+                  <Link className="nav-link" to="/alunos">
+                    <i className="bi bi-people me-2"></i>Alunos
+                  </Link>
+                </li>
               </ul>
               <h6 className="sidebar-heading d-flex justify-content-between align-items-center px-3 mt-4 mb-1 text-muted">
                 <span>Ações rápidas</span>
@@ -583,7 +652,7 @@ export default function AgendaPage() {
             {/* Formulário */}
             <div id="form" className="card shadow-sm day-panel-card mb-4">
               <div className="card-header">
-                <h5 className="mb-0">Nova aula</h5>
+                <h5 className="mb-0">{editingLessonId ? 'Editar aula' : 'Nova aula'}</h5>
               </div>
               <div className="card-body">
                 {msg && <div className="agenda-alert">{msg}</div>}
@@ -624,8 +693,21 @@ export default function AgendaPage() {
 
                   <div className="form-actions">
                     <button className="agenda-btn" type="submit" disabled={saving}>
-                      {saving ? 'Salvando…' : 'Adicionar'}
+                      {saving
+                        ? 'Salvando…'
+                        : editingLessonId
+                          ? 'Salvar alterações'
+                          : 'Adicionar'}
                     </button>
+                    {editingLessonId && (
+                      <button
+                        type="button"
+                        className="btn btn-link btn-sm ms-2"
+                        onClick={cancelEditLesson}
+                      >
+                        Cancelar edição
+                      </button>
+                    )}
                   </div>
                 </form>
               </div>
@@ -665,7 +747,20 @@ export default function AgendaPage() {
                                 <div className="task-sub">{l.location}</div>
                               </div>
                               <div className="task-actions">
-                                <button className="task-delete" onClick={() => removeLesson(l.id)}>
+                                <button
+                                  className="task-edit"
+                                  type="button"
+                                  onClick={() => startEditLesson(l)}
+                                  title="Editar"
+                                >
+                                  <i className="bi bi-pencil"></i>
+                                </button>
+                                <button
+                                  className="task-delete"
+                                  type="button"
+                                  onClick={() => removeLesson(l.id)}
+                                  title="Excluir"
+                                >
                                   <i className="bi bi-trash"></i>
                                 </button>
                               </div>
